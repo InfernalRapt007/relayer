@@ -9,14 +9,14 @@ Railway is the easiest way to deploy this relayer. It will automatically detect 
 
 ## Step 1: Push Code to GitHub
 
-If you haven't already, push your project to GitHub:
+I have already initialized the local repository for you. Now you just need to create the remote repository and push.
+
+1.  Go to [GitHub.com/new](https://github.com/new) and create a repository named `relayer`.
+2.  Run these commands in your terminal (inside the `relayer` folder):
 
 ```bash
-git init
-git add .
-git commit -m "Initial commit"
-# Replace with your repo URL
-git remote add origin https://github.com/YOUR_USERNAME/qiexchange.git
+git remote add origin https://github.com/YOUR_USERNAME/relayer.git
+git branch -M main
 git push -u origin main
 ```
 
