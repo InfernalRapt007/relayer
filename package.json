@@ -1,0 +1,17 @@
+{
+    "name": "bridge-relayer",
+    "version": "1.0.0",
+    "description": "Cross-chain bridge relayer for QIE Testnet",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js",
+        "dev": "nodemon index.js"
+    },
+    "dependencies": {
+        "ethers": "^6.4.0",
+        "dotenv": "^16.0.0"
+    },
+    "devDependencies": {
+        "nodemon": "^3.0.0"
+    }
+}
