@@ -17,6 +17,16 @@ const QIE_MAINNET_RPC = 'https://rpc-main1.qiblockchain.online';
 const QIE_BRIDGE_ADDRESS = '0x72815898398d372589883499E76D185004C8EB95';
 const MOCK_USDC_ADDRESS = '0x2d61343F52410F5C10f540A7BfBD29Af6d94e4Be';
 
+// Initialize Providers once
+const providers = {};
+SEPOLIA_CHAINS.forEach(chain => {
+    providers[chain.chainId] = new ethers.JsonRpcProvider(chain.rpc);
+});
+
+const qieProvider = new ethers.JsonRpcProvider(QIE_RPC);
+const qieMainnetProvider = new ethers.JsonRpcProvider(QIE_MAINNET_RPC);
+const arbProvider = new ethers.JsonRpcProvider(process.env.ARB_SEPOLIA_RPC_URL || 'https://arbitrum-sepolia.blockpi.network/v1/rpc/public');
+
 // ABIs
 const BRIDGE_ABI = [
     'event Deposit(address indexed sender, address indexed token, uint256 amount, uint256 destinationChainId)'
@@ -51,7 +61,7 @@ try {
 }
 
 async function pollChainForEvents(chainConfig) {
-    const provider = new ethers.JsonRpcProvider(chainConfig.rpc);
+    const provider = providers[chainConfig.chainId];
     const bridgeContract = new ethers.Contract(chainConfig.bridgeAddress, BRIDGE_ABI, provider);
 
     try {
@@ -78,7 +88,7 @@ async function pollChainForEvents(chainConfig) {
 
     } catch (error) {
         // Silently ignore common polling errors
-        if (!error.message.includes('could not coalesce')) {
+        if (!error.message.includes('could not coalesce') && !error.message.includes('failed to detect network')) {
             console.error(`❌ Error polling ${chainConfig.name}:`, error.message);
         }
     }
@@ -133,9 +143,7 @@ async function processDepositEvent(event, chainConfig) {
 
 async function processBridgeOnQIE(depositId, recipient, amount, sourceChainId, sourceToken) {
     try {
-        const qieProvider = new ethers.JsonRpcProvider(QIE_RPC);
         const wallet = new ethers.Wallet(process.env.RELAYER_PRIVATE_KEY, qieProvider);
-
         const qieBridge = new ethers.Contract(QIE_BRIDGE_ADDRESS, QIE_BRIDGE_ABI, wallet);
 
         console.log(`   🔄 Processing on QIE chain...`);
@@ -173,11 +181,8 @@ async function processBridgeOnQIE(depositId, recipient, amount, sourceChainId, s
 async function updatePrices() {
     console.log('\n📈 Starting Price Update...');
 
-    // Providers
-    const arbProvider = new ethers.JsonRpcProvider(process.env.ARB_SEPOLIA_RPC_URL || 'https://arbitrum-sepolia.blockpi.network/v1/rpc/public');
-    const qieMainnetProvider = new ethers.JsonRpcProvider(QIE_MAINNET_RPC);
-    const qieTestnetProvider = new ethers.JsonRpcProvider(QIE_RPC);
-    const relayerWallet = new ethers.Wallet(process.env.RELAYER_PRIVATE_KEY, qieTestnetProvider);
+    // Use reused provider
+    const relayerWallet = new ethers.Wallet(process.env.RELAYER_PRIVATE_KEY, qieProvider);
 
     for (const asset of ASSETS) {
         const targetAddress = DEPLOYED_ORACLES[asset.symbol];
