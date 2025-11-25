@@ -27,7 +27,7 @@ const QIE_BRIDGE_ABI = [
 ];
 
 const ORACLE_ABI = [
-    'function latestAnswer() external view returns (int256)',
+    'function latestRoundData() external view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)',
     'function updatePrice(int256 _price) external'
 ];
 
@@ -192,21 +192,25 @@ async function updatePrices() {
             // 1. Fetch Price
             if (asset.sourceChain === 'QIE_MAINNET') {
                 const oracle = new ethers.Contract(asset.sourceAddress, ORACLE_ABI, qieMainnetProvider);
-                price = await oracle.latestAnswer();
+                const data = await oracle.latestRoundData();
+                price = data.answer;
             } else if (asset.sourceChain === 'ARB_SEPOLIA') {
                 if (asset.sourceAddress === '0x0000000000000000000000000000000000000000') {
                     // Placeholder for assets without feed
                     continue;
                 }
                 const oracle = new ethers.Contract(asset.sourceAddress, ORACLE_ABI, arbProvider);
-                price = await oracle.latestAnswer();
+                const data = await oracle.latestRoundData();
+                price = data.answer;
             }
 
             // 2. Update Testnet
             const mockOracle = new ethers.Contract(targetAddress, ORACLE_ABI, relayerWallet);
 
             // Check current price to avoid unnecessary tx
-            const currentPrice = await mockOracle.latestAnswer();
+            const currentData = await mockOracle.latestRoundData();
+            const currentPrice = currentData.answer;
+
             if (currentPrice === price) {
                 // console.log(`   Example: ${asset.symbol} price unchanged (${price})`);
                 continue;
@@ -268,4 +272,3 @@ async function main() {
 }
 
 main().catch(console.error);
-
