@@ -39,7 +39,7 @@ const lastCheckedBlocks = new Map();
 // Load deployed oracles
 let DEPLOYED_ORACLES = {};
 try {
-    const deployedPath = path.join(__dirname, '../deployed_oracles.json');
+    const deployedPath = path.join(__dirname, 'deployed_oracles.json');
     if (fs.existsSync(deployedPath)) {
         DEPLOYED_ORACLES = JSON.parse(fs.readFileSync(deployedPath, 'utf8'));
         console.log(`✅ Loaded ${Object.keys(DEPLOYED_ORACLES).length} deployed oracles.`);
