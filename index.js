@@ -1,5 +1,8 @@
 const { ethers } = require('ethers');
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const ASSETS = require('./assets');
 
 // Configuration
 const SEPOLIA_CHAINS = [
@@ -10,6 +13,7 @@ const SEPOLIA_CHAINS = [
 ];
 
 const QIE_RPC = 'https://testnetqierpc1.digital';
+const QIE_MAINNET_RPC = 'https://rpc-main1.qiblockchain.online';
 const QIE_BRIDGE_ADDRESS = '0x72815898398d372589883499E76D185004C8EB95';
 const MOCK_USDC_ADDRESS = '0x2d61343F52410F5C10f540A7BfBD29Af6d94e4Be';
 
@@ -22,10 +26,29 @@ const QIE_BRIDGE_ABI = [
     'function processBridgeDeposit(bytes32 depositId, address recipient, uint256 amount, uint256 sourceChainId, address sourceToken, address targetToken) external'
 ];
 
+const ORACLE_ABI = [
+    'function latestAnswer() external view returns (int256)',
+    'function updatePrice(int256 _price) external'
+];
+
 // Track processed deposits and last checked blocks
 const processedDeposits = new Set();
 const processingDeposits = new Set(); // Track deposits currently being processed
 const lastCheckedBlocks = new Map();
+
+// Load deployed oracles
+let DEPLOYED_ORACLES = {};
+try {
+    const deployedPath = path.join(__dirname, '../deployed_oracles.json');
+    if (fs.existsSync(deployedPath)) {
+        DEPLOYED_ORACLES = JSON.parse(fs.readFileSync(deployedPath, 'utf8'));
+        console.log(`✅ Loaded ${Object.keys(DEPLOYED_ORACLES).length} deployed oracles.`);
+    } else {
+        console.warn('⚠️  deployed_oracles.json not found. Price feeder will be disabled.');
+    }
+} catch (e) {
+    console.error('❌ Error loading deployed_oracles.json:', e.message);
+}
 
 async function pollChainForEvents(chainConfig) {
     const provider = new ethers.JsonRpcProvider(chainConfig.rpc);
@@ -146,14 +169,79 @@ async function processBridgeOnQIE(depositId, recipient, amount, sourceChainId, s
     }
 }
 
+// --- Price Feeder Logic ---
+async function updatePrices() {
+    console.log('\n📈 Starting Price Update...');
+
+    // Providers
+    const arbProvider = new ethers.JsonRpcProvider(process.env.ARB_SEPOLIA_RPC_URL || 'https://arbitrum-sepolia.blockpi.network/v1/rpc/public');
+    const qieMainnetProvider = new ethers.JsonRpcProvider(QIE_MAINNET_RPC);
+    const qieTestnetProvider = new ethers.JsonRpcProvider(QIE_RPC);
+    const relayerWallet = new ethers.Wallet(process.env.RELAYER_PRIVATE_KEY, qieTestnetProvider);
+
+    for (const asset of ASSETS) {
+        const targetAddress = DEPLOYED_ORACLES[asset.symbol];
+        if (!targetAddress) {
+            // console.log(`   ⚠️  No Mock Oracle for ${asset.symbol}, skipping.`);
+            continue;
+        }
+
+        try {
+            let price;
+
+            // 1. Fetch Price
+            if (asset.sourceChain === 'QIE_MAINNET') {
+                const oracle = new ethers.Contract(asset.sourceAddress, ORACLE_ABI, qieMainnetProvider);
+                price = await oracle.latestAnswer();
+            } else if (asset.sourceChain === 'ARB_SEPOLIA') {
+                if (asset.sourceAddress === '0x0000000000000000000000000000000000000000') {
+                    // Placeholder for assets without feed
+                    continue;
+                }
+                const oracle = new ethers.Contract(asset.sourceAddress, ORACLE_ABI, arbProvider);
+                price = await oracle.latestAnswer();
+            }
+
+            // 2. Update Testnet
+            const mockOracle = new ethers.Contract(targetAddress, ORACLE_ABI, relayerWallet);
+
+            // Check current price to avoid unnecessary tx
+            const currentPrice = await mockOracle.latestAnswer();
+            if (currentPrice === price) {
+                // console.log(`   Example: ${asset.symbol} price unchanged (${price})`);
+                continue;
+            }
+
+            // console.log(`   🔄 Updating ${asset.symbol}: ${currentPrice} -> ${price}`);
+            const tx = await mockOracle.updatePrice(price);
+            await tx.wait();
+            console.log(`   ✅ Updated ${asset.symbol} to ${price}`);
+
+        } catch (error) {
+            console.error(`   ❌ Failed to update ${asset.symbol}:`, error.message);
+        }
+    }
+    console.log('📉 Price Update Completed.');
+}
+
 async function startPolling() {
     console.log('🔄 Starting polling loop (checking every 1 second)...\n');
 
+    // Bridge Polling (Every 1s)
     setInterval(async () => {
         for (const chain of SEPOLIA_CHAINS) {
             pollChainForEvents(chain).catch(() => { }); // Silently catch errors
         }
     }, 1000);
+
+    // Price Feeder Polling (Every 60s)
+    if (Object.keys(DEPLOYED_ORACLES).length > 0) {
+        console.log('💰 Starting Price Feeder (every 60s)...');
+        updatePrices(); // Run once immediately
+        setInterval(async () => {
+            updatePrices().catch(console.error);
+        }, 60000);
+    }
 
     // Initial poll
     for (const chain of SEPOLIA_CHAINS) {
@@ -180,3 +268,4 @@ async function main() {
 }
 
 main().catch(console.error);
+
